@@ -1,0 +1,379 @@
+#!/bin/sh
+#                                 D  T  A  R
+#
+# MIT License
+#
+# Copyright (c) 2019 Evgeny V. Bogodukhov
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+VERSION=0.0.1
+
+BIN_DIR="$HOME/bin"
+SYSTEM_BIN_DIR="/usr/local/bin"
+DTARGET_FILE="$HOME/.dtarget"
+DEFAULT_BACKUP_DIR="$HOME/dtar_backups"
+TMP_DIR="/tmp"
+
+help() {
+    _dt_=$(dt)
+    _pdir_base_="${PARENT_DIR}/${BASENAME}"
+    _bdir_long_="${BACKUP_DIR}/${LONGNAME}"
+    cat << EOF
+dtar - Quickly backs up the working directory: ${SOURCE_DIR}
+     ( Adds the current date and time to the name.
+       Default datetime format: +%Y-%m-%d_%H-%M-%S
+       For example: '${_dt_}')
+Usage: dtar {  -c |  -a |  -z |  -j |  -x }[ options ] - backs up to parent directory
+       dtar { -cc | -aa | -zz | -jj | -xx }[ options ] - backs up to target backup directory
+       dtar {  -m | -mm | -mb }[ options ] - commands for renames
+       dtar {  -s |  -w |  -e |  -r } - commands for setup target backup directory
+       dtar { -ls } - displays the contents of the backup directory
+       dtar {  -h } - displays help
+      *See living examples at the end of help.
+Options:
+      -f|--from     Temporarily sets the source directory
+      -b|--to       Temporarily sets target backup directory
+      -v|--verbose  Verbose mode
+      -n|--dry-run  Dry run mode
+EOF
+    if [ "${DTAR_HELP}" ]; then
+    cat << EOF
+Backup Commands:
+      -c            Creates a copy of the current directory in the format '${BASENAME}_${_dt_}'
+      -a            Creates archive '${BASENAME}_${_dt_}.tar'
+      -z            Creates archive '${BASENAME}_${_dt_}.tar.gz'
+      -j            Creates archive '${BASENAME}_${_dt_}.tar.bz2'
+      -x            Creates archive '${BASENAME}_${_dt_}.tar.xz'
+      -cc           Creates a copy of the current directory in the format '${LONGNAME}_${_dt_}'
+      -aa           Creates archive '${LONGNAME}_${_dt_}.tar'
+      -zz           Creates archive '${LONGNAME}_${_dt_}.tar.gz'
+      -jj           Creates archive '${LONGNAME}_${_dt_}.tar.bz2'
+      -xx           Creates archive '${LONGNAME}_${_dt_}.tar.xz'
+Rename Commands:
+      -m            Renames the current directory to '${BASENAME}_${_dt_}'
+      -mm           Renames the current directory to '${LONGNAME}_${_dt_}'
+      -mb           Renames the current directory, for example: '${BASENAME}_${_dt_}' to its original location,
+                    returning its name without a date and time at the end: '$(dt_x "${BASENAME}_${_dt_}")'
+Setup commands:
+      You can set the backup directory by specifying the full path to it in the file '~/.dtarget'
+      -s            Resets '~/.dtarget' to default backup directory - '${DEFAULT_BACKUP_DIR}'
+      -w            Resets '~/.dtarget' to current working directory - '${SOURCE_DIR}'
+      -e            Calls default \$EDITOR or vi (if unset) for editing the file '~/.dtarget'
+      -r            Removes '~/.dtarget'
+Additional Commands:
+      -dwd          Displays the path to the backup directory
+      -ls           Displays the contents of the backup directory
+      -dt           Displays current datetime: '${_dt_}'
+      -i            Self-installs to '\$HOME/bin' directory
+      -i -g         Self-installs to '/usr/local/bin' directory
+      -ia           Creates symbolic links to '\$HOME/bin/dtar' for quick use of basic commands
+                    ( c a z j x cc aa zz jj xx m mm mb dwd dls dt dts dtw dte dtr)
+Living examples:
+======================
+The current directory:
+======================
+'${PWD}' ->
+---------|
+dtar  c  |-> '${_pdir_base_}_${_dt_}'
+dtar cc  |-> '${_bdir_long_}_${_dt_}'
+dtar  a  |-> '${_pdir_base_}_${_dt_}.tar'
+dtar aa  |-> '${_bdir_long_}_${_dt_}.tar'
+dtar  z  |-> '${_pdir_base_}_${_dt_}.tar.gz'
+dtar zz  |-> '${_bdir_long_}_${_dt_}.tar.gz'
+dtar  j  |-> '${_pdir_base_}_${_dt_}.tar.bz2'
+dtar jj  |-> '${_bdir_long_}_${_dt_}.tar.bz2'
+dtar  x  |-> '${_pdir_base_}_${_dt_}.tar.xz'
+dtar xx  |-> '${_bdir_long_}_${_dt_}.tar.xz'
+dtar  l  |-> '${_pdir_base_}_${_dt_}.tar.lzma'
+dtar ll  |-> '${_bdir_long_}_${_dt_}.tar.lzma'
+EOF
+    fi
+    cat << EOF
+dtar ${VERSION}
+The path to the target backup directory can be set in the "~/.dtarget" file
+EOF
+    backup_dir_info;
+}
+
+# Helpers
+dt()                 { date +%Y-%m-%d_%H-%M-%S;                                                                             }
+dt_x()               { echo "$1" | sed 's/_[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]_[0-9][0-9]-[0-9][0-9]-[0-9][0-9]$//'; }
+mk_base()            { mkdir "${PARENT_DIR}/${BASENAME}"; echo "Created empty directory: ${PARENT_DIR}/${BASENAME}";        }
+rm_base()            { rm -rf "${PARENT_DIR:?}/${BASENAME:?}"; echo "Removed: ${PARENT_DIR}/${BASENAME}";                   }
+echo_moved()         { echo "Moved: ${PARENT_DIR}/${BASENAME} -> $1/${NEWNAME}";                                            }
+echo_created()       { echo "Created: $1/${NEWNAME}";                                                                       }
+exit_with_msg()      { printf '%s\n' "$1"; exit 0;                                                                          }
+get_first_word()     { if test -r "${1}"; then head -n 1 "${1}" | awk '{print $1}'; fi;                                     }
+
+edit_dtarget_f()     {                "${EDITOR:-vi}" "${DTARGET_FILE}";                                                    }
+reset_dtarget_f()    { echo "${DEFAULT_BACKUP_DIR}" > "${DTARGET_FILE}";                                                    }
+remove_dtarget_f()   {                            rm  "${DTARGET_FILE}";                                                    }
+pwd_to_dtarget_f()   {                echo "${PWD}" > "${DTARGET_FILE}";                                                    }
+get_cfg_backup_dir() {                get_first_word  "${DTARGET_FILE}";                                                    }
+
+# Low level functions
+_c()  { NEWNAME="${1}"_$(dt);          cd "${SOURCE_DIR}" || return; cd ..; cp "-RpX${2}" "${PARENT_DIR}/${BASENAME}" "${3}/${NEWNAME}";
+        echo "Copied: ${PARENT_DIR}/${BASENAME} -> ${3}/${NEWNAME}";                                                                                      }
+_a()  { NEWNAME="${1}"_$(dt).tar;      cd "${SOURCE_DIR}" || return; cd ..; tar         "-c${2}f" "${3}/${NEWNAME}" "${BASENAME}"; echo_created "${3}";   }
+_z()  { NEWNAME="${1}"_$(dt).tar.gz;   cd "${SOURCE_DIR}" || return; cd ..; tar        "-cz${2}f" "${3}/${NEWNAME}" "${BASENAME}"; echo_created "${3}";   }
+_j()  { NEWNAME="${1}"_$(dt).tar.bz2;  cd "${SOURCE_DIR}" || return; cd ..; tar        "-cj${2}f" "${3}/${NEWNAME}" "${BASENAME}"; echo_created "${3}";   }
+_x()  { NEWNAME="${1}"_$(dt).tar.xz;   cd "${SOURCE_DIR}" || return; cd ..; tar        "-cJ${2}f" "${3}/${NEWNAME}" "${BASENAME}"; echo_created "${3}";   }
+_l()  { NEWNAME="${1}"_$(dt).tar.lzma; cd "${SOURCE_DIR}" || return; cd ..; tar --lzma  "-c${2}f" "${3}/${NEWNAME}" "${BASENAME}"; echo_created "${3}";   }
+_m()  { NEWNAME="${1}"_$(dt);          cd "${SOURCE_DIR}" || return; cd ..; mv "-f${2}" "${PARENT_DIR}/${BASENAME}" "${3}/${NEWNAME}"; echo_moved "${3}"; }
+_mb() { NEWNAME=$(dt_x "${BASENAME}"); cd "${SOURCE_DIR}" || return; cd ..; if [ "${1}" ]; then rm -rf "${PARENT_DIR:?}/${NEWNAME:?}"; fi;
+        mv "${PARENT_DIR}/${BASENAME}" "${PARENT_DIR}/${NEWNAME}"; echo_moved "${PARENT_DIR}";                                                            }
+
+# Backup functions
+c()   {  _c "${ARCHNAME}" "${DTAR_VERBOSE}" "${TARGET_DIR}"; if [ "${RM_BASE}" ]; then rm_base; fi; } # copy
+a()   {  _a "${ARCHNAME}" "${DTAR_VERBOSE}" "${TARGET_DIR}"; if [ "${RM_BASE}" ]; then rm_base; fi; } # tar
+z()   {  _z "${ARCHNAME}" "${DTAR_VERBOSE}" "${TARGET_DIR}"; if [ "${RM_BASE}" ]; then rm_base; fi; } # tar.gz
+j()   {  _j "${ARCHNAME}" "${DTAR_VERBOSE}" "${TARGET_DIR}"; if [ "${RM_BASE}" ]; then rm_base; fi; } # tar.bz2
+x()   {  _x "${ARCHNAME}" "${DTAR_VERBOSE}" "${TARGET_DIR}"; if [ "${RM_BASE}" ]; then rm_base; fi; } # tar.xz
+l()   {  _l "${ARCHNAME}" "${DTAR_VERBOSE}" "${TARGET_DIR}"; if [ "${RM_BASE}" ]; then rm_base; fi; } # tar.lzma
+
+# Rename/move functions
+m()   {  _m "${ARCHNAME}" "${DTAR_VERBOSE}" "${TARGET_DIR}";
+         if [ ! "${RM_BASE}" ]; then mk_base; fi;               } # Renames the directory and creates an empty one instead.
+mb()  {  _mb;                                                   } # Renames the directory to its original name.
+mb_() {  _mb "f";                                                 # Removes a directory with the original name;
+                                                                } # renames the directory to its original name.
+
+
+config_backup_dir_writable() {
+    cfg_b_dir=$(get_cfg_backup_dir);
+    if [ "${cfg_b_dir}" ]; then
+        if test -e "${cfg_b_dir}"; then
+            if test -d "${cfg_b_dir}"; then
+                if test -w "${cfg_b_dir}"; then
+                    echo "1";
+                fi
+            fi
+        fi
+    fi
+}
+
+select_backup_dir() {
+    if [ "$(config_backup_dir_writable)" ]; then
+        get_cfg_backup_dir;
+    else
+        if [ ! -w "${PARENT_DIR}" ]; then
+            # Prevent the automatic selection of the root directory as a directory for backups
+            echo "${TMP_DIR}";
+        else
+            echo "${PARENT_DIR}";
+        fi
+    fi
+}
+
+backup_dir_info() {
+    sel_b_dir=$(select_backup_dir);
+    if [ "$(get_cfg_backup_dir)" ]; then
+        if [ "$(config_backup_dir_writable)" ]; then
+            echo "Currently, the backup directory is:";
+        else
+            echo "Currently, the backup directory is set to: '$(get_cfg_backup_dir)' but not available,"\
+                 "so the parent directory will be used:";
+        fi
+    else
+        if [ "x${sel_b_dir}" = "x${PARENT_DIR}" ]; then
+            echo "Currently, the backup directory is not set,"\
+                 "so the parent directory will be used:";
+        else
+            echo "Currently, the backup directory is not set and parent directory is not writable,"\
+                 "so the temporary directory will be used:"
+        fi
+    fi
+    echo "${sel_b_dir}";
+}
+
+self_install() {
+    INSTALL_DIR="${BIN_DIR}"
+    if test -w "${TARGET_DIR}"; then
+        INSTALL_DIR="${TARGET_DIR}"
+    fi
+    if [ "${GLOBAL_INSTALL}" ]; then
+        INSTALL_DIR="${SYSTEM_BIN_DIR}"
+    fi
+    if test -w "${INSTALL_DIR}"; then
+        echo "Copying $0 to '${INSTALL_DIR}'...";
+        cp "$0" "${INSTALL_DIR}";
+        echo "Done."
+    else
+        echo "${INSTALL_DIR} is not writable";
+    fi
+}
+
+make_symlinks() {
+    _bin_dtar=$(command -v "${BASE0}")
+    if [ ! "${_bin_dtar}" ]; then
+        echo "dtar executable not found"; exit 0;
+    fi
+    if [ "${TARGET_DIR}" ]; then
+        _ldir="${TARGET_DIR}"
+    else
+        _ldir="${BIN_DIR}"
+    fi
+    _f=${1:-i}
+    _ln_() { ln -s "-${_f}" "${_bin_dtar}" "${_ldir}/${1}"; }
+    _ln4() { _ln_ "${1}"; _ln_ "${1}${1}"; _ln_ "${1}-"; _ln_ "${1}${1}-"; }
+    if test -w "${BIN_DIR}"; then
+        echo "Making symbolic links for '${_bin_dtar}' in '${_ldir}' directory";
+        if test -e "${_bin_dtar}"; then
+            for c in "a" "z" "j" "x" "J" "c" "m"; do _ln4 "$c"; done
+            for c in "mb" "mb-" "dwd" "dls" "dt" "dts" "dtw" "dte" "dtr"; do _ln_ "$c"; done
+            echo "Done."
+        fi
+    else
+        echo "${BIN_DIR} is not writable";
+    fi
+}
+
+make_symlinks_f() { make_symlinks "f"; }
+
+make_backup_dir() {
+    t=$(get_cfg_backup_dir);
+    if test ! -e "${t}"; then
+        _d=$(dirname "${t}");
+        if test -e "${_d}"; then
+            if test -w "${_d}"; then
+                mkdir "${t}";
+                if test -e "${t}"; then
+                    echo "${t} - [ created ]"
+                fi
+            fi
+        else
+            mkdir -p "${t}";
+            if test -e "${t}"; then
+                echo "${t} - [ created ]"
+            fi
+        fi
+    fi
+    backup_dir_info;
+}
+
+ls_backup_dir() {
+    _ls=$(ls -A "${BACKUP_DIR}")
+    if [ -z "${_ls}" ]; then
+        echo "${BACKUP_DIR} - The backup directory is empty now";
+    else ls -d -1 "${BACKUP_DIR}"/**
+    fi
+}
+
+main() {
+    _ex() { echo "$1" | sed s/J/x/g | sed s/-// | cut -c 1-1; }
+    while [ $# -gt 0 ]; do
+        P=$1;
+        _c_() { _E=$(_ex "${P}"); export _E;
+                export _TARGET_TYPE="PARENT_DIR";
+                export _ARCHNAME_TYPE="BASENAME";
+              }
+        _cc_() { _E=$(_ex "${P}"); export _E;
+                 export _TARGET_TYPE="BACKUP_DIR";
+                 export _ARCHNAME_TYPE="LONGNAME";
+               }
+        shift
+        case ${P} in
+c   |   m  |   a  |   z  |   j  |   x  |   J  |\
+-c  |  -m  |  -a  |  -z  |  -j  |  -x  |  -J  ) _c_                                          ;;
+c-  |   m- |   t- |   z- |   j- |   x- |   J- ) _c_ ; export RM_BASE="1"                     ;;
+cc  |  mm  |  aa  |  zz  |  jj  |  xx  |  JJ  |\
+-cc | -mm  | -aa  | -zz  | -jj  | -xx  | -JJ  ) _cc_                                         ;;
+cc- |  mm- |  aa- |  zz- |  jj- |  xx- |  JJ- ) _cc_ ; export RM_BASE="1"                    ;;
+l   |  -l  | --lzma                           ) export _TARGET_TYPE="PARENT_DIR";
+                                                export _ARCHNAME_TYPE="BASENAME";
+                                                export _E="l"                                ;;
+ll  | -ll                                     ) export _TARGET_TYPE="BACKUP_DIR";
+                                                export _ARCHNAME_TYPE="LONGNAME";
+                                                export _E="l"                                ;;
+mb  | -mb  | --move-back                      ) export _E="mb"                               ;;
+mb- |        --move-back-force                ) export _E="mb_"                              ;;
+i   |  -i  | --self-install                   ) export _E="self_install"                     ;;
+ia  | -ia  | --self-install-with-symlinks     ) export _E="self_install make_symlinks"       ;;
+iaf | --self-install-with-symlinks-force      ) export _E="self_install make_symlinks_f"     ;;
+g   |  -g  | --global                         ) export GLOBAL_INSTALL="1"                    ;;
+e   |  -e  | dte | --edit-config              ) export _E="edit_dtarget_f make_backup_dir"   ;;
+r   |  -r  | dtr | --remove-config            ) export _E="remove_dtarget_f backup_dir_info" ;;
+s   |  -s  | dts | --reset-backup-dir         ) export _E="reset_dtarget_f make_backup_dir"  ;;
+w   |  -w  | dtw | --set-pwd-as-backup-dir    ) export _E="pwd_to_dtarget_f backup_dir_info" ;;
+ls  | -ls  | dls | --ls-backup-dir            ) export _E="ls_backup_dir"                    ;;
+dt  | -dt  | --print-datetime                 ) export _E="dt"                               ;;
+v   |  -v  | --verbose                        ) export DTAR_VERBOSE="v"                      ;;
+d   |  -d  | --debug                          ) export DTAR_DEBUG="1"                        ;;
+dwd | -dwd | --print-path-to-backup-dir       ) export _E="select_backup_dir"                ;;
+n   |  -n  | --dry-run                        ) export DRY_RUN="1"; export DTAR_DEBUG="1"    ;;
+f   |  -f  | --from                           ) export SOURCE_DIR="${1}"; shift              ;;
+t   |  -t  | --to                             ) export TARGET_DIR="${1}"; shift              ;;
+dtar                                          ) export _E="help"                             ;;
+h   |  -h  | --help                           ) export _E="help";
+                                                export DTAR_HELP="1"                         ;;
+*) exit_with_msg "dtar: Option '${P}' is not supported"                                      ;;
+        esac
+    done
+    if [ "x${_E}" = "x" ]; then
+        _E="help"
+    fi
+    if [ ! "${SOURCE_DIR}" ]; then
+        SOURCE_DIR="${PWD}";
+    fi
+    PARENT_DIR=$(dirname "${SOURCE_DIR}");
+    BASENAME=$(basename "${SOURCE_DIR}");
+    BACKUP_DIR=$(select_backup_dir);
+    if [ ! "${TARGET_DIR}" ]; then
+        if [ "x${_TARGET_TYPE}" = "xPARENT_DIR" ]; then TARGET_DIR="${PARENT_DIR}"; fi
+        if [ "x${_TARGET_TYPE}" = "xBACKUP_DIR" ]; then TARGET_DIR="${BACKUP_DIR}"; fi
+    fi
+    LONGNAME_SPLITTER="__";
+    LONGNAME=$(echo "${PARENT_DIR}" | sed "s/\//_/g")${LONGNAME_SPLITTER}${BASENAME};
+    if [ "x${_ARCHNAME_TYPE}" = "xBASENAME" ]; then ARCHNAME="${BASENAME}"; fi
+    if [ "x${_ARCHNAME_TYPE}" = "xLONGNAME" ]; then ARCHNAME="${LONGNAME}"; fi
+    if [ "x${PARENT_DIR}" = "x/" ]; then
+        PARENT_DIR="";
+    fi
+
+    set - ${_E};
+    for _e do
+        if [ ${DTAR_DEBUG} ]; then
+            echo "DEBUG INFO:";
+            echo "------------------------------------------------";
+            echo "\$SOURCE_DIR:     '${SOURCE_DIR}'";
+            echo "\$PARENT_DIR:     '${PARENT_DIR}'";
+            echo "\$BACKUP_DIR:     '${BACKUP_DIR}'";
+            echo "\$TARGET_DIR:     '${TARGET_DIR}'";
+            echo "\$ARCHNAME:       '${ARCHNAME}'";
+            echo "\$DTAR_VERBOSE:   '${DTAR_VERBOSE}'";
+            echo "\$RM_BASE:        '${RM_BASE}'";
+            echo "Running command: '${_e}'";
+            echo "------------------------------------------------";
+        fi
+        if [ ! ${DRY_RUN} ]; then
+            ${_e};
+        else
+            echo "DRY RUN: '${_e}'";
+        fi
+    done
+    exit 0;
+}
+
+BASE0=$(basename "$0");
+set - "${BASE0}" "$@";
+
+if [ ! "x${BASE0}" = "xdtar_test.sh" ]; then
+    main "$@";
+fi
