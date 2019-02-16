@@ -4,7 +4,7 @@
 
 ## Getting Started
 
-These instructions will get you a copy of the project up and running on your local machine.
+The following example shows the result of running ```dtar --help```, which shows the possibilities of using.
 
 ```
 ~/Applications> dtar --help
