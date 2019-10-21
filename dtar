@@ -129,7 +129,7 @@ pwd_to_dtarget_f()   {                echo "${PWD}" > "${DTARGET_FILE}";        
 get_cfg_backup_dir() {                get_first_word  "${DTARGET_FILE}";                                                    }
 
 # Low level functions
-_c()  { NEWNAME="${1}"_$(dt);          cd "${SOURCE_DIR}" || return; cd ..; cp "-RpX${2}" "${PARENT_DIR}/${BASENAME}" "${3}/${NEWNAME}";
+_c()  { NEWNAME="${1}"_$(dt);          cd "${SOURCE_DIR}" || return; cd ..; cp "-Rp${2}" "${PARENT_DIR}/${BASENAME}" "${3}/${NEWNAME}";
         echo "Copied: ${PARENT_DIR}/${BASENAME} -> ${3}/${NEWNAME}";                                                                                      }
 _a()  { NEWNAME="${1}"_$(dt).tar;      cd "${SOURCE_DIR}" || return; cd ..; tar         "-c${2}f" "${3}/${NEWNAME}" "${BASENAME}"; echo_created "${3}";   }
 _z()  { NEWNAME="${1}"_$(dt).tar.gz;   cd "${SOURCE_DIR}" || return; cd ..; tar        "-cz${2}f" "${3}/${NEWNAME}" "${BASENAME}"; echo_created "${3}";   }
